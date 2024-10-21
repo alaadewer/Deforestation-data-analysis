@@ -1,0 +1,210 @@
+ 
+SQL Project Coding
+CREATION:
+DROP VIEW IF EXISTS forestations;
+CREATE VIEW forestations AS
+SELECT f.country_code AS fcode,
+              f.country_name AS fname,
+              f.forest_area_sqkm,
+              f.year AS fyear,
+              l.country_code AS lcode,
+              l.country_name AS lname,
+              l.total_area_sq_mi,
+              l.total_area_km, 
+              f.forest_area_sqkm/NULLIF (l.total_area_km,0) AS percentage,
+              l.year AS lyear,
+              r.country_name AS rname,
+              r.country_code AS rcode,
+              r.region,
+              r.income_group
+
+FROM forest_area f
+JOIN land_area l
+ON f.country_code = l.country_code AND f.year = l.year
+JOIN regions r
+ON l.country_code = r.country_code; 
+SELECT ROUND (percentage*100)AS forest_percentage
+FROM forestations
+
+
+PART #1 GLOBAL SITIUATION
+a.
+SELECT  fyear, SUM(forest_area_sqkm) AS total_forest_area
+FROM forestations
+WHERE fyear='1990' AND fname='World'
+GROUP BY fyear;
+
+ 
+B.
+SELECT  fyear, 
+               SUM(forest_area_sqkm) AS total_forest_area
+FROM forestations
+WHERE fyear='2016' AND fname='World'
+GROUP BY fyear;
+ 
+C.
+SELECT
+    (SELECT forest_area_sqkm 
+    FROM forestations 
+    WHERE fyear = 1990 AND fname='World') -
+    (SELECT forest_area_sqkm 
+    FROM forestations 
+    WHERE fyear = 2016 AND fname='World') AS Change_forest_area
+ 
+d.
+WITH forest_area_1990 AS (
+    SELECT SUM (forest_area_sqkm) AS forest_area_1990
+    FROM forestations
+    WHERE fyear = 1990
+    AND fname = 'World'
+),
+forest_area_2016 AS (
+    SELECT SUM(forest_area_sqkm) AS forest_area_2016
+    FROM forestations
+    WHERE fyear = 2016
+    AND fname = 'World'
+)
+SELECT 
+    ((f2016.forest_area_2016 - f1990.forest_area_1990) / f1990.forest_area_1990) * 100 AS percent_change
+FROM 
+    forest_area_1990 f1990,
+    forest_area_2016 f2016;
+ 
+e.
+WITH forest_area_1990 AS (
+    SELECT SUM (forest_area_sqkm) AS forest_area_1990
+    FROM forestations
+    WHERE fyear = 1990
+    AND fname = 'World'
+),
+forest_area_2016 AS (
+    SELECT SUM(forest_area_sqkm) AS forest_area_2016
+    FROM forestations
+    WHERE fyear = 2016
+    AND fname = 'World'
+),
+loss_change_2016_1990 AS (
+SELECT (f1990.forest_area_1990 - f2016.forest_area_2016) AS loss_change
+FROM 
+    forest_area_1990 f1990,
+    forest_area_2016 f2016)
+SELECT f.fname,
+              f.total_area_km,
+              cte.loss_change,
+               ABS(f.total_area_km - cte.loss_change) AS difference
+FROM forestations f,
+            loss_change_2016_1990 cte
+WHERE fyear = 2016
+ORDER BY difference ASC
+LIMIT 5; 
+PART#2 Regional Outlook
+DROP TABLE IF EXISTS region_forest_percentages;
+
+CREATE TABLE region_forest_percentages (
+                          region VARCHAR(512),
+                          percent_forest_area_1990 DECIMAL(5,2),
+                          percent_forest_area_2016 DECIMAL(5,2)
+);
+INSERT INTO region_forest_percentages (region, percent_forest_area_1990, percent_forest_area_2016)
+WITH region_forest_area AS (
+  SELECT r.region,
+                f.year,
+                SUM(f.forest_area_sqkm) AS total_forest_area,
+                SUM(l.total_area_sq_mi * 2.59) AS total_land_area
+  FROM regions r
+  INNER JOIN forest_area f 
+  ON r.country_code = f.country_code
+  INNER JOIN land_area l 
+  ON r.country_code = l.country_code AND f.year = l.year
+  GROUP BY r.region, f.year
+)
+SELECT region,
+  SUM(CASE WHEN year = 1990 THEN total_forest_area / total_land_area ELSE 0 END) * 100 AS percent_forest_area_1990,
+  SUM(CASE WHEN year = 2016 THEN total_forest_area / total_land_area ELSE 0 END) * 100 AS percent_forest_area_2016
+FROM region_forest_area
+GROUP BY region;
+ 
+a.
+SELECT region, percent_forest_area_2016
+FROM region_forest_percentages
+WHERE region='World'
+ORDER BY 2;
+ 
+SELECT region, percent_forest_area_2016
+FROM region_forest_percentages
+ORDER BY 2 ASC;
+ 
+
+b.
+SELECT region, percent_forest_area_1990
+FROM region_forest_percentages
+WHERE region='World'
+
+ 
+SELECT region, percent_forest_area_1990
+FROM region_forest_percentages
+ORDER BY 2 ASC;
+ 
+c.
+SELECT region, (percent_forest_area_2016 - percent_forest_area_1990) AS decreasing
+FROM region_forest_percentages
+WHERE (percent_forest_area_2016 - percent_forest_area_1990) < 0
+ORDER BY 2;
+ 
+Part#3 Country-Level Detail
+a.
+WITH forest_area_country AS (
+  SELECT fname,
+               SUM(CASE WHEN fyear = 1990 THEN forest_area_sqkm ELSE 0 END) AS forest_area_1990,
+               SUM(CASE WHEN fyear = 2016 THEN forest_area_sqkm ELSE 0 END) AS forest_area_2016
+  FROM forestations f
+  GROUP BY fname
+)
+SELECT f.fname,
+              f.forest_area_1990,
+              f.forest_area_2016,
+              f.forest_area_1990 - f.forest_area_2016 AS loss_change
+FROM forest_area_country f
+ORDER BY loss_change DESC
+LIMIT 6;
+ 
+b.
+WITH forest_area_by_country AS (
+  SELECT fname,
+                SUM(CASE WHEN fyear = 1990 THEN forest_area_sqkm ELSE 0 END) AS forest_area_1990,
+                SUM(CASE WHEN fyear = 2016 THEN forest_area_sqkm ELSE 0 END) AS forest_area_2016
+  FROM forestations f
+  GROUP BY fname
+)
+SELECT fr.fname,
+              fr.forest_area_1990,
+              fr.forest_area_2016,
+              ROUND(((fr.forest_area_2016 - fr.forest_area_1990) / fr.forest_area_1990) * 100, 2) AS percent_change
+FROM forest_area_by_country  fr
+WHERE fr.forest_area_1990 > 0  
+ORDER BY percent_change ASC
+LIMIT 5;
+ 
+
+c.
+WITH compare_percent AS(
+  SELECT percentage AS us_forestation_percentage
+  FROM forestations
+  WHERE fname = 'United States' AND  fyear = 2016
+)
+SELECT COUNT(*) AS countries_with_higher_forestation
+FROM forestations
+WHERE fyear = 2016 AND
+percentage > (SELECT us_forestation_percentage 
+                          FROM compare_percent);
+ 
+Our insights
+
+The correlation between income classification and the level of desertification in countries
+SELECT r.country_name,
+                r.income_group
+FROM Regions r 
+ WHERE r.country_name = 'Brazil' OR r.country_name = 'Indonesia' OR r.country_name = 'Myanmar' OR                r.country_name = 'Nigeria' OR r.country_name = 'Tanzania'
+  GROUP BY r.country_name, r.income_group
+  ORDER BY r.country_name;
+ 
